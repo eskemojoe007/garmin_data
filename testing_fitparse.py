@@ -40,19 +40,7 @@ def td_formatter(x,pos,fmt='{total_minutes}:{seconds}'):
 
 # end%%
 
-# # %%
-# def print_record_data(obj):
-#      for record_data in obj:
-#         if record_data.units:
-#             print(" * %s: %s %s" % (
-#                 record_data.name, record_data.value, record_data.units,
-#             ))
-#         else:
-#             print( " * %s: %s" % (record_data.name, record_data.value))
-#
-# # end%%
 # %%
-
 def get_obj_names(obj):
     names = []
     for data in obj:
@@ -76,13 +64,6 @@ def df_from_messages(message_iter):
     for obj in message_iter:
         for key in d.keys():
              d[key].append(obj.get_value(key))
-            # data = obj.get(key)
-            # print(empty_tup(data.value))
-            # if data.units and data.value and (empty_tup(data.value) is not None):
-            #     print(data.value,data.units)
-            #     d[key].append(data.value * ureg(data.units))
-            # else:
-            #     d[key].append(data.value)
 
     return remove_empty_cols(pd.DataFrame(d))
 
@@ -104,26 +85,16 @@ def remove_empty_cols(df):
 
 
 def laps_check_overlap(df):
-    return any((df['start_time'] - df['timestamp'].shift().fillna(df['start_time'].iloc[0])) != pd.to_timedelta(0))
+    got_bad = any((df['start_time'] - df['timestamp'].shift().fillna(df['start_time'].iloc[0])) != pd.to_timedelta(0))
 
-# l_list = list(fitfile.get_messages('lap'))
-# obj = l_list[2]
-# obj.get_value('enhanced_avg_speed')
-# data = obj.get('enhanced_avg_speed')
-#
-# data.value*ureg(data.units).to('mph')
-laps = df_from_messages(fitfile.get_messages('lap'))
-if laps_check_overlap(laps):
-    fn_bad_laps = 'Bad Laps Information.csv'
-    laps[['start_time','timestamp']].to_csv(fn_bad_laps)
-    logger.warning('We found overlapping laps.  See Laps output: in {}'.format(fn_bad_laps))
-
-data_points = df_from_messages(fitfile.get_messages('record'))
-data_points.sort_values('timestamp',inplace=True)
-# laps[['start_time','timestamp']]
+    if got_bad:
+        fn_bad_laps = 'Bad Laps Information.csv'
+        laps[['start_time','timestamp']].to_csv(fn_bad_laps)
+        logger.warning('We found overlapping laps.  See Laps output: in {}'.format(fn_bad_laps))
+        logger.warning('Continuing anyway...')
+    return got_bad
 
 
-# data_points['timestamp'].between(laps['start_time'].loc[0],laps['timestamp'].loc[0])
 def app_lap_get(val,laps,laps_start='start_time',laps_end='timestamp'):
     idx = laps.index[(laps[laps_start]<= val) & (laps[laps_end] > val)]
 
@@ -132,122 +103,162 @@ def app_lap_get(val,laps,laps_start='start_time',laps_end='timestamp'):
     else:
         raise ValueError('Couldnt find laps')
 
-data_points['lap_id'] = data_points['timestamp'].map(lambda x: app_lap_get(x,laps))
-data_points['seconds'] = (data_points['timestamp'] - data_points['timestamp'].loc[0])
-data_points.set_index('seconds',inplace=True)
-data_points.index = data_points.index.total_seconds()
-
-laps['starts_seconds'] = (laps['start_time'] - laps['start_time'].loc[0]).map(datetime.timedelta.total_seconds)
-laps['end_seconds'] = (laps['timestamp'] - laps['start_time'].loc[0]).map(datetime.timedelta.total_seconds)
-
 def app_sprint_get(row,ave_thresh=9.0*ureg('mph'),max_thresh=12.0*ureg('mph')):
     ave = (row['enhanced_avg_speed'] * ureg('m/s')).to('mph')
     fastest = (row['enhanced_max_speed'] * ureg('m/s')).to('mph')
-
     return (ave > ave_thresh) and (fastest > max_thresh)
 
 
-laps['sprint'] = laps.apply(app_sprint_get,axis=1)
+def get_seconds_series(df,key,seconds_key):
+    return df.set_index(seconds_key)[key]
 
-laps[['starts_seconds','end_seconds']]
+def second_axis_match(ax,ax2):
+    l = ax.get_ylim()
+    l2 = ax2.get_ylim()
+    f = lambda x : l2[0]+(x-l[0])/(l[1]-l[0])*(l2[1]-l2[0])
+    ticks = f(ax.get_yticks())
+    return FixedLocator(ticks)
+
+def plot_sprints(data_df,lap_df,x,y,sprints_only=True,ax=None,**kwargs):
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    if sprints_only:
+        filtered_data = data_df.loc[data_df['lap_id'].isin(lap_df.index[lap_df['sprint']])]
+    else:
+        filtered_data = data_df
+
+
+    legend = kwargs.get('legend',True)
+    filtered_data.groupby('lap_id').plot(x=x,y=y,ax=ax,**kwargs)
+
+    if legend:
+        labels = lap_df['descrip'].loc[lap_df.index.isin(filtered_data['lap_id'].unique())].values
+        ax.legend(labels)
+    return ax
+
+
+
+def lap_descrip(row):
+    if row['sprint']:
+        return 'S{} - {:0.0f}m'.format(row['sprint_count'],row['total_distance'])
+    else:
+        return 'Other'
+
+def get_lap_distances(data_df):
+    start_dis = data_df[['lap_id','distance']].groupby('lap_id').min()
+    return data_df.apply(lambda x: x['distance'] - start_dis.loc[x['lap_id']],axis=1)
+
+
+ms_mph = (1*ureg('m/s')).to('mph')
+cp = sns.color_palette()
+# end%%
+
+
+# %%
+
+# Get raw dataframes
+lap_df = df_from_messages(fitfile.get_messages('lap'))
+data_points = df_from_messages(fitfile.get_messages('record'))
+
+# Clean up and add values to data_points
+data_points.sort_values('timestamp',inplace=True)
+data_points['lap_id'] = data_points['timestamp'].map(lambda x: app_lap_get(x,laps))
+data_points['lap_distance'] = get_lap_distances(data_points)
+data_points['speed_mph'] = data_points['speed'] * ms_mph
+data_points['shitty_speed_mph'] = data_points['distance'].diff()/data_points['timestamp'].diff().dt.total_seconds() * ms_mph
+
+# Auto Determine sprints
+laps['sprint'] = laps.apply(app_sprint_get,axis=1)
+laps['sprint_count'] = laps.groupby('sprint').cumcount()
+laps['descrip'] = laps.apply(lap_descrip,axis=1)
+
+# Pandas sucks at time differences as indexes when plotting...we just want to get
+# seconds
+data_points['seconds'] = (data_points['timestamp'] - data_points['timestamp'].loc[0]).map(datetime.timedelta.total_seconds)
+laps['starts_seconds'] = (laps['start_time'] - laps['start_time'].loc[0]).map(datetime.timedelta.total_seconds)
+laps['end_seconds'] = (laps['timestamp'] - laps['start_time'].loc[0]).map(datetime.timedelta.total_seconds)
 
 # end%%
-laps
-data_points['timestamp']
-data_points.columns.values
+
+
+
+
 # %% Overall Plot
+
 fig,ax = plt.subplots()
-(data_points['speed']*(1*ureg('m/s')).to('mph')).plot(ax=ax)
-ax.xaxis.set_major_formatter(FuncFormatter(td_formatter))
+ax2 = ax.twinx()
+
+#First Axis Plot
+get_seconds_series(data_points,'speed_mph','seconds').plot(ax=ax)
 ax.set_xlabel('')
 ax.set_ylabel('Speed [MPH]',color=sns.color_palette()[0])
 ax.tick_params('y', colors=sns.color_palette()[0])
-for i,row in laps.loc[laps['sprint']].iterrows():
-    ax.axvspan(row['starts_seconds'],row['end_seconds'],color=sns.color_palette()[2],alpha=0.5,zorder=0)
-ax2 = ax.twinx()
-data_points['heart_rate'].plot(ax=ax2,color=sns.color_palette()[1])
-ax2.set_ylabel('Heart Rate [BPM]',color=sns.color_palette()[1])
-ax2.tick_params('y', colors=sns.color_palette()[1])
 
-l = ax.get_ylim()
-l2 = ax2.get_ylim()
-f = lambda x : l2[0]+(x-l[0])/(l[1]-l[0])*(l2[1]-l2[0])
-ticks = f(ax.get_yticks())
-ax2.yaxis.set_major_locator(FixedLocator(ticks))
+#Highlight Sprints
+for i,row in laps.loc[laps['sprint']].iterrows():
+    ax.axvspan(row['starts_seconds'],row['end_seconds'],color=cp[2],alpha=0.5,zorder=0)
+
+#Secondary axis
+get_seconds_series(data_points,'heart_rate','seconds').plot(ax=ax2,color=cp[1])
+ax2.set_ylabel('Heart Rate [BPM]',color=cp[1])
+ax2.tick_params('y', colors=cp[1])
+ax2.grid(False)
+
+#Set up the xaxis
+ax.xaxis.set_major_formatter(FuncFormatter(td_formatter))
+
+#Match second Axis
+ax2.yaxis.set_major_locator(second_axis_match(ax,ax2))
+ax.set_title('Overall Activity with Hightlight Sprints')
+# end%%
+
+# %% Sprint Bar charts
+fig,ax = plt.subplots()
+laps.loc[laps['sprint']].plot.bar(x='descrip',y='total_timer_time',legend=False,color=cp[0],ax=ax)
+ax.set_xlabel('')
+ax.set_ylabel('Time [s]')
+
+for i,time in enumerate(laps['total_timer_time'].loc[laps['sprint']]):
+    ax.text(i,time-2,'{:0.1f}'.format(time),rotation=90,ha='center',va='top',color='w')
 # end%%
 
 # %%
 
-# data_points.set_index('lap_id',drop=True,append=True)
+fig, axs = plt.subplots(2,sharex=True,sharey=True,figsize=(10,8))
+plot_sprints(data_points,laps,'lap_distance','speed_mph',ax=axs[0],legend=True)
+plot_sprints(data_points,laps,'lap_distance','shitty_speed_mph',ax=axs[1],legend=False)
+
+
+axs[0].set_ylabel('Speed [MPH]')
+axs[1].set_ylabel('Speed [MPH]')
+axs[0].set_xlabel('Distance [m]')
+axs[1].set_xlabel('Distance [m]')
+axs[0].set_title('Garmin smoothing')
+axs[1].set_title('My Euler')
+fig.tight_layout()
+fig.suptitle('Speed over Distance')
+fig.subplots_adjust(top=0.88)
+
 # end%%
 
+# %% BPM Over Distance
+fig, ax = plt.subplots(1)
+plot_sprints(data_points,laps,'lap_distance','heart_rate',ax=ax,legend=True)
+ax.set_ylabel('Heart Rate [BPM]')
+ax.set_title('Heart Rate')
+# end%%
+# %% BPM Over Distance
+fig, ax = plt.subplots(1)
+plot_sprints(data_points,laps,'heart_rate','shitty_speed_mph',ax=ax,legend=True,style='o')
+ax.set_ylim([10,18])
+ax.set_ylabel('Speed [MPH]')
+ax.set_title('Looking for speed and heart rate trends')
+ax.set_xlabel('Heart Rate [BPM]')
+# end%%
 
+# %%
+if __name__ == '__main__':
+    main() 
 
-# # %% Mess with auto dict and df creation
-# for idx, lap in enumerate(fitfile.get_messages('lap',as_dict=False)):
-#      if idx == 2:
-#          d = {}
-#          for data in lap:
-#              d[data.name] = data.value
-#
-#
-# d
-# # end%%
-#
-# # %%
-# message = fitfile.messages[0]
-# laps = fitfile.get_messages('lap')
-#
-#
-#
-# lap_objs = []
-# lap_number = 0
-# lap_record_objs = {}
-# lap_record_objs[lap_number] = []
-# for obj in fitfile.messages:
-#     if obj.name == 'lap':
-#         lap_objs.append(obj)
-#         lap_number += 1
-#         lap_record_objs[lap_number] = []
-#     if (obj.name=='record') and (lap_number >= 0):
-#         lap_record_objs[lap_number].append(obj)
-#
-# lap_objs[2]
-# lap_record_objs[2]
-# lap_objs
-# for obj in fitfile.messages:
-#     print(obj.name)
-#
-# for obj in fitfile.get_messages('unknown_233'):
-#     print_record_data(obj)
-#
-# for index,lap in enumerate(laps):
-#     if index == 2:
-#         print_record_data(lap)
-# # message.
-# # for index, lap in enumerate(fitfile.get_messages('lap')):
-# #     if index == 2:
-# #         for record_data in lap:
-# #             if record_data.units:
-# #                 print(" * %s: %s %s" % (
-# #                     record_data.name, record_data.value, record_data.units,
-# #                 ))
-# #             else:
-# #                 print( " * %s: %s" % (record_data.name, record_data.value))
-#
-# # Get all data messages that are of type record
-# for record in fitfile.get_messages('record'):
-#
-#     # Go through all the data entries in this record
-#     for record_data in record:
-#
-#         # Print the records name and value (and units if it has any)
-#         if record_data.units:
-#             print(" * %s: %s %s" % (
-#                 record_data.name, record_data.value, record_data.units,
-#             ))
-#         else:
-#             print( " * %s: %s" % (record_data.name, record_data.value))
-#     print
-#
-# # end%%
+# end%%
