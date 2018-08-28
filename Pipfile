@@ -12,7 +12,7 @@ pint = "*"
 "15a9268" = {path = ".\\..\\colored_logger", editable = true}
 
 [dev-packages]
-pyinstaller = "*"
+cx-freeze = "*"
 
 [requires]
 python_version = "3.6"
