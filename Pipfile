@@ -9,7 +9,7 @@ fitparse = "*"
 seaborn = "*"
 matplotlib = "*"
 pint = "*"
-"15a9268" = {path = ".\\..\\colored_logger", editable = true}
+colored-logger = {git = "https://github.com/eskemojoe007/colored_logger"}
 
 [dev-packages]
 cx-freeze = "*"

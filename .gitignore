@@ -100,3 +100,4 @@ ENV/
 
 # My additions
 *_Figs
+*.fit

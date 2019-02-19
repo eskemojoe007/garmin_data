@@ -40,7 +40,7 @@ def main():
         help='Average speed of a lap must be above this value in MPH in order to be identified as a sprint. Default = 9 MPH')
     parser.add_argument('--max_thresh',metavar='Max Speed Threshold',
         type=float, default=12.0,
-        help='Max speed of a lap must be above this value in MPH in order to be identified as a sprint. Default = 9 MPH')
+        help='Max speed of a lap must be above this value in MPH in order to be identified as a sprint. Default = 12 MPH')
     parser.add_argument('-o','--output_descrip',metavar='Output Descrip',type=str,
         default='%s'%datetime.date.today().strftime('%Y_%m_%d'),
         help='Output file location, defaults to YYYY_MM_DD_Figs/')
@@ -125,7 +125,7 @@ def main():
     fig.savefig(os.path.join(fol,'bar_times.png'),bbox_inches='tight')
     # end%%
 
-    # %%
+    # %% Speeds over distance multiple methods
 
     fig, axs = plt.subplots(2,sharex=True,sharey=True,figsize=(10,8))
     plot_sprints(data_points,laps,'lap_distance','speed_mph',ax=axs[0],legend=True)
@@ -149,13 +149,24 @@ def main():
     fig, ax = plt.subplots(1)
     plot_sprints(data_points,laps,'lap_distance','heart_rate',ax=ax,legend=True)
     ax.set_ylabel('Heart Rate [BPM]')
+    ax.set_xlabel('Distance [M]')
     ax.set_title('Heart Rate')
     fig.savefig(os.path.join(fol,'heart_rate.png'),bbox_inches='tight')
     # end%%
+
+    # # %% Elevation Over Distance
+    # fig, ax = plt.subplots(1)
+    # plot_sprints(data_points,laps,'lap_distance','altitude',ax=ax,legend=True)
+    # ax.set_ylabel('Elevation [M above sea]')
+    # ax.set_xlabel('Distance [M]')
+    # ax.set_title('Profile of course')
+    # fig.savefig(os.path.join(fol,'profile.png'),bbox_inches='tight')
+    # # end%%
+
     # %% BPM Over Distance
     fig, ax = plt.subplots(1)
     plot_sprints(data_points,laps,'heart_rate','shitty_speed_mph',ax=ax,legend=True,style='o')
-    ax.set_ylim([10,18])
+    # ax.set_ylim([10,18])
     ax.set_ylabel('Speed [MPH]')
     ax.set_title('Looking for speed and heart rate trends')
     ax.set_xlabel('Heart Rate [BPM]')
