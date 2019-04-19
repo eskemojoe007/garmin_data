@@ -75,6 +75,7 @@ def main():
     data_points.sort_values('timestamp', inplace=True)
     data_points['lap_id'] = data_points['timestamp'].map(
         lambda x: app_lap_get(x, laps))
+    data_points.dropna(subset=['lap_id'], inplace=True)
     data_points['lap_distance'] = get_lap_distances(data_points)
     data_points['speed_mph'] = data_points['speed'] * MS_MPH
     data_points['shitty_speed_mph'] = data_points['distance'].diff(
